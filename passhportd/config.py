@@ -28,7 +28,7 @@ SALT            = conf.get("Database", "SALT")
 SSH_KEY_FILE    = conf.get("Environment", "SSH_KEY_FILE")
 
 """ PaSSHport path """
-OPEN_ACCESS_PATH  = conf.get("Environment", "OPEN_ACCESS_PATH")
+OPEN_ACCESS_PATH= conf.get("Environment", "OPEN_ACCESS_PATH")
 PASSHPORT_PATH  = conf.get("Environment", "PASSHPORT_PATH")
 PYTHON_PATH     = conf.get("Environment", "PYTHON_PATH")
 
@@ -49,6 +49,13 @@ SSL_CERTIFICAT  = conf.get("SSL", "SSL_CERTIFICAT")
 SSL_KEY         = conf.get("SSL", "SSL_KEY")
 
 
+""" NOTIFICATIONS """
+NOTIF_LOG_TYPE  = conf.get("NOTIFICATIONS", "NOTIF_LOG_TYPE", fallback='None')
+NOTIF_TO        = conf.get("NOTIFICATIONS", "NOTIF_TO", fallback='root')
+NOTIF_FROM      = conf.get("NOTIFICATIONS", "NOTIF_FROM", fallback='passhport@bastion')
+NOTIF_SMTP      = conf.get("NOTIFICATIONS", "SMTP", fallback='127.0.0.1')
+
 """ MISC """
 MAXLOGSIZE      = conf.get("MISC", "MAXLOGSIZE")
 NODE_NAME       = conf.get("MISC", "NODE_NAME")
+DB_SESSIONS_TO  = conf.get("MISC", "DB_SESSIONS_TO", fallback='4')

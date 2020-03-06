@@ -1,14 +1,28 @@
 # -*-coding:Utf-8 -*-
-import psutil, re, subprocess, os
-from datetime import datetime, timedelta, date
-from app import app, db
-from .views_mod import user, target, usergroup, targetgroup, logentry, utils
+import psutil
+import re
+import subprocess
+import os
+import config
+from datetime import datetime
+from datetime import timedelta
+from datetime import date
+from app import app
+from app import db
+from .views_mod import user
+from .views_mod import target
+from .views_mod import usergroup
+from .views_mod import targetgroup
+from .views_mod import logentry
+from .views_mod import utils
 from .models_mod import logentry
 from .models_mod import user
 from .models_mod import target
-from flask import request, stream_with_context, Response
+from .models_mod import exttargetaccess
+from flask import request
+from flask import stream_with_context
+from flask import  Response
 from tabulate import tabulate
-import config
 
 @app.route("/")
 def imalive():
@@ -114,7 +128,6 @@ def hours_minutes(td):
 def currentsshconnections():
     """Return a json presenting the current ssh connections associated 
        to their PID"""
-
     lentries = logentry.Logentry.query.filter(db.and_(
                logentry.Logentry.endsessiondate == None,
 	       logentry.Logentry.target != None,
@@ -140,6 +153,33 @@ def currentsshconnections():
     return output[:-1] + "]"
 
 
+@app.route("/connection/db/current")
+def currentdbconnections():
+    """Return a json presenting the current database connections associated 
+       to their PID"""
+    now = datetime.now()
+    access = exttargetaccess.Exttargetaccess.query.filter(db.and_(
+               exttargetaccess.Exttargetaccess.stopdate >= str(now),
+               exttargetaccess.Exttargetaccess.proxy_pid != 0 )).all()
+
+    if not access:
+        return "[]"
+
+    output = "[ "
+
+    for entry in access:
+        duration = now - datetime.strptime(entry.startdate,'%Y-%m-%d %H:%M:%S.%f')
+        output = output + \
+                '{"Email" : "' + \
+                 entry.show_username() + '",' + \
+                 '"Target" : "' + \
+                 entry.show_targetname() + '",' + \
+                 '"PID" : "' + str(entry.proxy_pid) + '",' + \
+                 '"Date" : "' + hours_minutes(duration) + '"},'
+                             
+    return output[:-1] + "]"
+
+
 @app.route("/connection/ssh/current/killbiglog")
 def currecntsshconnectionskillbiglog():
     """Kill the actives sessions whith log files too big"""
@@ -147,9 +187,10 @@ def currecntsshconnectionskillbiglog():
     lentries = logentry.Logentry.query.filter(db.and_(
                logentry.Logentry.endsessiondate == None,
                logentry.Logentry.target != None,
-               logentry.Logentry.user != None,
                logentry.Logentry.logfilename.like(
-                                    config.NODE_NAME + '-%'))).all()
+                                    config.NODE_NAME + '-%'),
+               logentry.Logentry.connectioncmd.like('%ssh%'),
+	           logentry.Logentry.user != None)).all()
 
     killedpid = ""
     confmaxsize = int(config.MAXLOGSIZE)*1024*1024
@@ -176,26 +217,31 @@ def currecntsshconnectionskillbiglog():
     return "Killed PIDs: " + killedpid
 
 
+def is_pid_running(pid):
+    """Check if the process is still running"""
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
 @app.route("/connection/ssh/checkandterminate")
 def checkandterminatesshsession():
     """Check all the connections and close those without a process runing"""
-    isodate    = datetime.now().isoformat().replace(":",""). \
-                 replace("-","").split('.')[0]
     lentries = logentry.Logentry.query.filter(db.and_(
                logentry.Logentry.endsessiondate == None,
                logentry.Logentry.logfilename.like(
-                                    config.NODE_NAME + '-%'))).all()
+                                   config.NODE_NAME + '-%'))).all()
     
+    app.logger.error(lentries)
     if not lentries:
         return "No active connection."
 
     for entry in lentries:
-        try:
-            parent = psutil.Process(entry.pid)
-        except Exception as E:
-            if type(E) == psutil.NoSuchProcess:
-                endsshsession(entry.pid)
-                app.loggerwarning("Orphan connection with PID:" + \
+        if not is_pid_running(entry.pid):
+            endsshsession(entry.pid)
+            app.logger.warning("Orphan connection with PID:" + \
                         str(entry.pid) + ". Now closed in the logentry.")
 
     return "Active connections: check done."
@@ -207,7 +253,7 @@ def oldentriesendsession():
     isodate    = datetime.now().isoformat().replace(":",""). \
                  replace("-","").split('.')[0]
     lentries = logentry.Logentry.query.filter(
-             logentry.Logentry.pid == None).all()
+             logentry.Logentry.pid is None).all()
 
     if not lentries:
         return "Error: no logentry without PID"
@@ -255,10 +301,6 @@ def endsshsession(pid):
     except exc.SQLAlchemyError as e:
         return utils.response('ERROR: "' + name + '" -> ' + e.message, 409)
 
-    #At last change the root password if needed
-    if lentry.target:
-        lentry.target[0].changepass(isodate)
-
     return "Done"
 
 
@@ -272,7 +314,7 @@ def sshdisconnection(pid):
 
     except Exception as E:
         if type(E) == psutil.NoSuchProcess:
-            app.loggerwarning("Impossible to kill: no such process with PID " + str(pid))
+            app.logger.warning("Impossible to kill: no such process with PID " + str(pid))
 
     return "Done"
 
@@ -363,4 +405,3 @@ def directdownload():
         return utils.response("ERROR: can't connect", 404)
 
     return Response(stream_with_context(p.stdout))
-
